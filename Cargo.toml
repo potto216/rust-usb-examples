@@ -10,4 +10,5 @@ name = "bluetooth_le_controller"
 path = "src/bin/bluetooth_le_controller.rs"
 
 [dependencies]
-bpaf = "0.7.4"
+bpaf = { version = "0.7.4", features =["autocomplete"] }
+rusb = "0.9.1"
