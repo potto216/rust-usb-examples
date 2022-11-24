@@ -5,8 +5,11 @@
 // Ref
 //https://github.com/a1ien/rusb/blob/master/examples/read_device.rs
 //https://github.com/pacak/bpaf/blob/master/examples/basic.rs
-//  cargo run  --bin bluetooth_le_controller -- -d abc
-//  cargo build  --bin bluetooth_le_controller
+
+cargo build  --bin bluetooth_le_controller
+cargo run  --bin bluetooth_le_controller -- -d abc
+export LIBUSB_DEBUG=4
+unset LIBUSB_DEBUG=4
 
 
 # First remove the BlueZ drivers
@@ -38,3 +41,22 @@ export LIBUSB_DEBUG=4
 cd rust-usb-examples
 cargo build --bin bluetooth_le_controller
 cargo run  --bin bluetooth_le_controller -- -d abc
+
+
+# For the mouse
+# If using VMware 
+Shutdown the VM
+Go to VM->Settings->"USB Controller" and check "Show all USB input devices"
+Start VM and log in
+
+# disable hid
+sudo vi /etc/modprobe.d/usbhid.conf
+blacklist usbhid
+sudo update-initramfs -u
+# Update /etc/udev/rules.d/bluetooth-controller.rules
+
+sudo vi /etc/udev/rules.d/mouse-hid.rules
+# MosArt Semiconductor Corp. Wireless Mouse
+SUBSYSTEMS=="usb", ATTRS{idVendor}=="062a", ATTRS{idProduct}=="4102", MODE:="0666"
+
+sudo reboot now

@@ -45,10 +45,12 @@ fn opts() -> OptionParser<Out> {
 fn main() {
     let opts = opts().run();
     println!("{:#?}", opts);
-    println!("Hello, bluetooth_le_controller v0.0.1");
+    println!("Hello, mouse_hid v0.0.1");
 
-    let vid = 0x10d7;
-    let pid = 0xb012; 
+    // Bus 002 Device 007: ID 062a:4102 MosArt Semiconductor Corp. Wireless Mouse
+    // Lekvey mouse
+    let vid = 0x062a;
+    let pid = 0x4102; 
 
     match Context::new() {
         Ok(mut context) => match open_device(&mut context, vid, pid) {
@@ -98,7 +100,7 @@ fn read_device<T: UsbContext>(
     device_desc: &DeviceDescriptor,
     handle: &mut DeviceHandle<T>,
 ) -> Result<()> {
-    //handle.reset()?;
+    handle.reset()?;
 
     let timeout = Duration::from_secs(1);
     let languages = handle.read_languages(timeout)?;
@@ -136,26 +138,12 @@ fn read_device<T: UsbContext>(
     // Opcode MSB LSB Param Length = 0
     // OGF | OGC
     // 0000 11 | 00 0000 0011 = 0x0C03
-    let mut hci_cmd_buf = [0x03,0x0C, 0x00];
+    let mut hci_cmd_buf = [];
     let timeout_cmd = Duration::from_secs(1);
-    let req_t = rusb::request_type(Direction::Out, RequestType::Class, Recipient::Device);  //Should be 0x20
-    println!("Writing to control req_t = {}",req_t);
+    println!("Writing to control");
 
-
-    match handle.write_control( req_t,
-         0,        
-         0x00,
-         0x00,
-         &mut hci_cmd_buf,
-         timeout_cmd) {
-        Ok(len) => {
-            println!(" - sent: {:?} bytes", len);
-        }
-        Err(err) => println!("could not read from endpoint: {}", err),
-    }    
-    /*
-    match handle.write_control( rusb::request_type(Direction::Out, RequestType::Standard, Recipient::Endpoint),
-        0x00,        
+    match handle.write_control( rusb::request_type(Direction::Out, RequestType::Class, Recipient::Interface),
+         0x0a,
          0x00,
          0x00,
          &mut hci_cmd_buf,
@@ -166,36 +154,10 @@ fn read_device<T: UsbContext>(
         Err(err) => println!("could not read from endpoint: {}", err),
     }
 
-    */
-
-    handle.claim_interface(0);
+    handle.claim_interface(0)?;
     // bEndpointAddress     0x81  EP 1 IN ; Transfer Type            Interrupt
-    // When the reset has been performed, an HCI_Command_Complete event shall be generated.
-/*
-page 2188
-HCI_Command_-
-Complete
-0x0E Num_HCI_Command_Packets,
-Command_Opcode,
-Return_Parameters 
-Num_HCI_Command_Packets: Size: 1 octet
-Command_Opcode: Size: 2 octets
-Event Event Code Event Parameters
-HCI_Command_-
-Complete
-0x0E Num_HCI_Command_Packets,
-Command_Opcode,
-Return_Parameters
-Value Parameter Description
-0xXX The Number of HCI Command packets which are allowed to be sent to the
-Controller from the Host.
-Range: 0 to 255
-Value Parameter Description
-0x0000 No associated command
-0xXXXX (non-zero) Opcode of the command which caused this event.
- read: [14, 4, 1, 3, 12, 0]
-*/
-    let mut buf = [0; 255];
+
+    let mut buf = [0; 64];
     let timeout = Duration::from_secs(1);
     let endpoint_address = 0x81;
 
@@ -204,11 +166,12 @@ Value Parameter Description
         Ok(len) => {
             println!(" - read: {:?}", &buf[..len]);
         }
-        Err(err) => println!("could not read from endpoint: {}", err),
+        Err(err) => println!("could not read from endpoint: {}", err),        
     }
+    println!(" - read: {:?}", &buf);
         
 
-    handle.release_interface(0);
+    handle.release_interface(0)?;
 
 
     Ok(())
