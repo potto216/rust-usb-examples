@@ -1,6 +1,6 @@
 use bpaf::*;
-use std::path::PathBuf;
 use std::time::Duration;
+use std::u16;
 
 use rusb::{
     Context, Device, DeviceDescriptor, DeviceHandle, Direction, Result, RequestType, UsbContext, Recipient
@@ -19,7 +19,7 @@ fn opts() -> OptionParser<Out> {
 
     let device = short('d') // start with a short name
         .long("device") // also add a long name
-        .help("[vendor]:[product] Show only devices with the specified vendor and product ID.  Both IDs are given in hexadecimal.")
+        .help("[vendor]:[product] Open a device with the specified vendor and product ID.  Both IDs are given in hexadecimal.")
         .argument::<String>("Device"); // and a help message to use
 
     // number of occurrences of the v/verbose flag capped at 3 with an error here but you can also
@@ -45,10 +45,16 @@ fn opts() -> OptionParser<Out> {
 fn main() {
     let opts = opts().run();
     println!("{:#?}", opts);
-    println!("Hello, bluetooth_le_controller v0.0.1");
 
-    let vid = 0x10d7;
-    let pid = 0xb012; 
+    let mut split = opts.device.split(":");
+    
+    let vec: Vec<&str> = split.collect();
+    println!("Device is {}:{}", vec[0], vec[1]);
+
+    let vid = u16::from_str_radix(vec[0], 16).unwrap();
+    let pid = u16::from_str_radix(vec[1], 16).unwrap();
+
+    println!("Hello, bluetooth_le_controller v0.0.1 {}:{}", vid, pid);
 
     match Context::new() {
         Ok(mut context) => match open_device(&mut context, vid, pid) {
@@ -98,7 +104,7 @@ fn read_device<T: UsbContext>(
     device_desc: &DeviceDescriptor,
     handle: &mut DeviceHandle<T>,
 ) -> Result<()> {
-    //handle.reset()?;
+    handle.reset()?;
 
     let timeout = Duration::from_secs(1);
     let languages = handle.read_languages(timeout)?;
@@ -131,12 +137,25 @@ fn read_device<T: UsbContext>(
 
     handle.set_active_configuration(1)?;
     // OGF/OCF pg 1810
-    //For the HCI Control and Baseband commands, the OGF is defined as 0x03.
-    //HCI_Reset OCF = 0x0003 Status pg 1972
+    
+    // For the HCI Control and Baseband commands, the OGF is defined as 0x03.
+    // HCI_Reset OCF = 0x0003 Status pg 1972
     // Opcode MSB LSB Param Length = 0
-    // OGF | OGC
+    // OGF | OCF
     // 0000 11 | 00 0000 0011 = 0x0C03
-    let mut hci_cmd_buf = [0x03,0x0C, 0x00];
+    let mut hci_cmd_buf = [0x03, 0x0C, 0x00];
+
+    
+    let mut hci_cmd_buf_read = [0x00; 256];
+
+
+    // For Informational Parameters commands, the OGF is defined as 0x04.
+    // HCI_Read_BD_ADDR OCF = 0x0009 pg 2122
+    // Opcode MSB LSB Param Length = 0
+    // OGF | OCF
+    // 0001 00 | 00 0000 1001 = 0x1009
+    //[0x03, 0x10, 0x00];
+    let mut hci_cmd_buf = [0x09, 0x10, 0x00];
     let timeout_cmd = Duration::from_secs(1);
     let req_t = rusb::request_type(Direction::Out, RequestType::Class, Recipient::Device);  //Should be 0x20
     println!("Writing to control req_t = {}",req_t);
@@ -152,7 +171,22 @@ fn read_device<T: UsbContext>(
             println!(" - sent: {:?} bytes", len);
         }
         Err(err) => println!("could not read from endpoint: {}", err),
-    }    
+    }  
+    
+    /*
+    println!("Reading from control req_t = {}",req_t);
+    match handle.read_control( rusb::request_type(Direction::In, RequestType::Class, Recipient::Device),
+        0,        
+        0x00,
+        0x00,        
+        &mut hci_cmd_buf_read,
+        timeout_cmd) {
+       Ok(len) => {
+           println!(" -len {}, read: {:?} bytes",len, &hci_cmd_buf_read[..len]);
+       }
+       Err(err) => println!("could not read from endpoint: {}", err),
+   } 
+   */ 
     /*
     match handle.write_control( rusb::request_type(Direction::Out, RequestType::Standard, Recipient::Endpoint),
         0x00,        

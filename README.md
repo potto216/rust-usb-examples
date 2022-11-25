@@ -1,3 +1,5 @@
+These are the instructions to setup the 
+
 // run with cargo run --bin bluetooth_le_controller
 
 // setup with sudo apt install libusb-1.0-0-dev libusb-1.0-0
@@ -22,13 +24,17 @@ sudo update-initramfs -u
 
 sudo systemctl disable bluetooth.service
 
-# setup the 
+# Setup the rules to make the USB device read write
 /etc/udev/rules.d
 sudo vi /etc/udev/rules.d/bluetooth-controller.rules
 
 cat /etc/udev/rules.d/bluetooth-controller.rules
-# Actions general adapter
-SUBSYSTEMS=="usb", ATTRS{idVendor}=="10d7", ATTRS{idProduct}=="b012", MODE:="0666"
+# Broadcom Corp. BCM20702A0 Bluetooth 4.0
+SUBSYSTEMS=="usb", ATTRS{idVendor}=="0a5c", ATTRS{idProduct}=="21e8", MODE:="0666"
+
+sudo sh -c 'echo "# Broadcom Corp. BCM20702A0 Bluetooth 4.0" >> /etc/udev/rules.d/bluetooth-controller.rules'
+sudo sh -c 'echo "SUBSYSTEMS==\"usb\", ATTRS{idVendor}==\"0a5c\", ATTRS{idProduct}==\"21e8\", MODE:=\"0666\"" >> /etc/udev/rules.d/bluetooth-controller.rules'
+
 
 sudo udevadm control --reload-rules && sudo udevadm trigger
 
