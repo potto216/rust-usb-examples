@@ -1,5 +1,5 @@
 use bpaf::*;
-use std::time::Duration;
+use std::{time::Duration};
 use std::u16;
 
 use rusb::{
@@ -10,17 +10,48 @@ use rusb::{
 #[allow(dead_code)]
 #[derive(Debug, Clone)]
 struct Out {
-    device: String,
+    device: (u16, u16),
     verbose: usize,
 }
+
+use std::error::Error;
+
+// &'static str
+    // it should be possible to parse this without allocations - just remember that split you get is an iterator and you can call
+    // next to get the next value, then call `from_str_radix`  on that but transform the error to something helpful.
+
+
+fn parse_device(input: String) -> std::result::Result<(u16, u16),  &'static str> {
+    let mut split = input.split(":");
+    
+    //TODO: switch to an iterator
+    let vec: Vec<&str> = split.collect();
+    println!("Device is {}:{}", vec[0], vec[1]);
+
+    let vid =u16::from_str_radix(vec[0], 16);
+    if vid.is_err()  {
+        return Err("TODO: Error message about vid");
+    }
+
+
+    let pid =u16::from_str_radix(vec[1], 16);
+    if pid.is_err()  {
+        return Err("TODO: Error message about pid");
+    }
+
+    Ok((vid.unwrap(), pid.unwrap()))
+}
+
 
 fn opts() -> OptionParser<Out> {
     // A flag, true if used in the command line. Can be required, this one is optional
 
+
     let device = short('d') // start with a short name
         .long("device") // also add a long name
         .help("[vendor]:[product] Open a device with the specified vendor and product ID.  Both IDs are given in hexadecimal.")
-        .argument::<String>("Device"); // and a help message to use
+        .argument::<String>("Device")
+        .parse(parse_device); // and a help message to use
 
     // number of occurrences of the v/verbose flag capped at 3 with an error here but you can also
     // use `max` inside `map`
@@ -45,14 +76,7 @@ fn opts() -> OptionParser<Out> {
 fn main() {
     let opts = opts().run();
     println!("{:#?}", opts);
-
-    let mut split = opts.device.split(":");
-    
-    let vec: Vec<&str> = split.collect();
-    println!("Device is {}:{}", vec[0], vec[1]);
-
-    let vid = u16::from_str_radix(vec[0], 16).unwrap();
-    let pid = u16::from_str_radix(vec[1], 16).unwrap();
+    let (vid, pid) = opts.device;
 
     println!("Hello, bluetooth_le_controller v0.0.1 {}:{}", vid, pid);
 
@@ -104,7 +128,7 @@ fn read_device<T: UsbContext>(
     device_desc: &DeviceDescriptor,
     handle: &mut DeviceHandle<T>,
 ) -> Result<()> {
-    handle.reset()?;
+    //handle.reset()?;
 
     let timeout = Duration::from_secs(1);
     let languages = handle.read_languages(timeout)?;
@@ -202,7 +226,10 @@ fn read_device<T: UsbContext>(
 
     */
 
-    handle.claim_interface(0);
+
+    handle.claim_interface(0).unwrap();
+       
+    
     // bEndpointAddress     0x81  EP 1 IN ; Transfer Type            Interrupt
     // When the reset has been performed, an HCI_Command_Complete event shall be generated.
 /*
@@ -241,9 +268,7 @@ Value Parameter Description
         Err(err) => println!("could not read from endpoint: {}", err),
     }
         
-
-    handle.release_interface(0);
-
+    handle.release_interface(0).unwrap();
 
     Ok(())
 }
