@@ -1,80 +1,47 @@
 use bpaf::*;
-use std::{time::Duration};
+use std::time::Duration;
 use std::u16;
 
 use rusb::{
-    Context, Device, DeviceDescriptor, DeviceHandle, Direction, Result, RequestType, UsbContext, Recipient
+    Context, Device, DeviceDescriptor, DeviceHandle, Direction, Recipient, RequestType, Result,
+    UsbContext,
 };
 
+fn verbose() -> impl Parser<usize> {
+    short('v')
+        .long("verbose")
+        .help("Increase output verbosity, can be used several times")
+        .req_flag(())
+        .many()
+        .map(|v| v.len())
+}
 
 #[allow(dead_code)]
-#[derive(Debug, Clone)]
-struct Out {
+#[derive(Debug, Clone, Bpaf)]
+#[bpaf(options)]
+/// Example for bluetooth low energy controller demo
+struct Options {
+    #[bpaf(short, long, argument::<String>("DEVICE"), parse(parse_device))]
+    /// [vendor]:[product] Open a device with the specified vendor and product ID.
+    /// Both IDs are given in hexadecimal.
     device: (u16, u16),
+
+    /// Increase verbosity
+    #[bpaf(external)]
     verbose: usize,
 }
 
-use std::error::Error;
-
-// &'static str
-    // it should be possible to parse this without allocations - just remember that split you get is an iterator and you can call
-    // next to get the next value, then call `from_str_radix`  on that but transform the error to something helpful.
-
-
-fn parse_device(input: String) -> std::result::Result<(u16, u16),  &'static str> {
-    let mut split = input.split(":");
-    
-    //TODO: switch to an iterator
-    let vec: Vec<&str> = split.collect();
-    println!("Device is {}:{}", vec[0], vec[1]);
-
-    let vid =u16::from_str_radix(vec[0], 16);
-    if vid.is_err()  {
-        return Err("TODO: Error message about vid");
-    }
-
-
-    let pid =u16::from_str_radix(vec[1], 16);
-    if pid.is_err()  {
-        return Err("TODO: Error message about pid");
-    }
-
-    Ok((vid.unwrap(), pid.unwrap()))
-}
-
-
-fn opts() -> OptionParser<Out> {
-    // A flag, true if used in the command line. Can be required, this one is optional
-
-
-    let device = short('d') // start with a short name
-        .long("device") // also add a long name
-        .help("[vendor]:[product] Open a device with the specified vendor and product ID.  Both IDs are given in hexadecimal.")
-        .argument::<String>("Device")
-        .parse(parse_device); // and a help message to use
-
-    // number of occurrences of the v/verbose flag capped at 3 with an error here but you can also
-    // use `max` inside `map`
-    let verbose = short('v')
-        .long("verbose")
-        .help("Increase the verbosity\nYou can specify it up to 3 times\neither as -v -v -v or as -vvv")
-        .req_flag(())
-        .many()
-        .map(|xs| xs.len())
-        .guard(|&x| x <= 3, "It doesn't get any more verbose than this");
-
-
-    // packing things in a struct assumes parser for each field is in scope.
-    construct!(Out {
-        device,
-        verbose,
-    })
-    .to_options()
-    .descr("This is a description")
+fn parse_device(input: String) -> std::result::Result<(u16, u16), &'static str> {
+    let (vid, pid) = input
+        .split_once(':')
+        .ok_or("Device must be in form of XXXX:YYYY")?;
+    let vid = u16::from_str_radix(vid, 16).map_err(|_| "Not a valid VID")?;
+    let pid = u16::from_str_radix(pid, 16).map_err(|_| "Not a valid PID")?;
+    Ok((vid, pid))
 }
 
 fn main() {
-    let opts = opts().run();
+    let opts = options().run();
     println!("{:#?}", opts);
     let (vid, pid) = opts.device;
 
