@@ -1,68 +1,98 @@
-These are the instructions to setup the 
+# Examples using Rust to access USB devices
+## Overview
+This code demonstrates how to communicate with USB devices using Rust on Linux. The files are intendeded to be a starting point for others wanting to experiment with USB. USB access uses [rusb]. Command line argument parsing is done with [bpaf].
 
-// run with cargo run --bin bluetooth_le_controller
+## Setup
+The code is tested on VM running: 
+Linux 5.15.0-53-generic #59-Ubuntu SMP Mon Oct 17 18:53:30 UTC 2022 x86_64 x86_64 x86_64 GNU/Linux
 
-// setup with sudo apt install libusb-1.0-0-dev libusb-1.0-0
-//  sudo udevadm control --reload-rules && sudo udevadm trigger
-// Ref
-//https://github.com/a1ien/rusb/blob/master/examples/read_device.rs
-//https://github.com/pacak/bpaf/blob/master/examples/basic.rs
+### General Setup
+The setup requires libusb development packages which can be installed with
+`sudo apt install libusb-1.0-0-dev libusb-1.0-0`
 
-cargo build  --bin bluetooth_le_controller
-cargo run  --bin bluetooth_le_controller -- -d abc
-export LIBUSB_DEBUG=4
-unset LIBUSB_DEBUG=4
+### Accessing Bluetooth Controllers
+Linux commmunicates with Bluetooth controllers using the BlueZ stack. This stack prevents the direct USB access of the controllers. Therefore
+to communicate with Bluetooth controllers directly using [rusb] we must disable BlueZ.
 
+*If you wish to communicate with the Bluetooth controller while keeping the BlueZ stack enabled you can use the BlueZ `HCI_CHANNEL_USER` option as demonstarted in the [PayPal GATT repo](github.com/paypal/gatt), however you will not have direct USB access.
 
-# First remove the BlueZ drivers
+First disable the BlueZ drivers
+```
 sudo sh -c 'echo "install btusb /bin/true" >> /etc/modprobe.d/blacklist.conf'
 sudo sh -c 'echo "install bluetooth /bin/true" >> /etc/modprobe.d/blacklist.conf'
 sudo sh -c 'echo "install btrtl /bin/true" >> /etc/modprobe.d/blacklist.conf'
 sudo sh -c 'echo "install btintel /bin/true" >> /etc/modprobe.d/blacklist.conf'
 sudo sh -c 'echo "install btbcm /bin/true" >> /etc/modprobe.d/blacklist.conf'
 sudo update-initramfs -u
-
 sudo systemctl disable bluetooth.service
+sudo reboot now
 
-# Setup the rules to make the USB device read write
-/etc/udev/rules.d
-sudo vi /etc/udev/rules.d/bluetooth-controller.rules
+# Verify modules are not being loaded
+lsmod | grep -i bluetooth
+```
+
+Setup the rules to make the USB device read write
+```
+sudo sh -c 'echo "# Broadcom Corp. BCM20702A0 Bluetooth 4.0" >> /etc/udev/rules.d/bluetooth-controller.rules'
+sudo sh -c 'echo "SUBSYSTEMS==\"usb\", ATTRS{idVendor}==\"0a5c\", ATTRS{idProduct}==\"21e8\", MODE:=\"0666\"" >> /etc/udev/rules.d/bluetooth-controller.rules'
 
 cat /etc/udev/rules.d/bluetooth-controller.rules
 # Broadcom Corp. BCM20702A0 Bluetooth 4.0
 SUBSYSTEMS=="usb", ATTRS{idVendor}=="0a5c", ATTRS{idProduct}=="21e8", MODE:="0666"
 
-sudo sh -c 'echo "# Broadcom Corp. BCM20702A0 Bluetooth 4.0" >> /etc/udev/rules.d/bluetooth-controller.rules'
-sudo sh -c 'echo "SUBSYSTEMS==\"usb\", ATTRS{idVendor}==\"0a5c\", ATTRS{idProduct}==\"21e8\", MODE:=\"0666\"" >> /etc/udev/rules.d/bluetooth-controller.rules'
-
 
 sudo udevadm control --reload-rules && sudo udevadm trigger
+```
 
+### Accessing a Human Interface Device (HID)
+In Linux HIDs are owned by the usbhid driver. Therefore to access it the driver must be disabled. WARNING! Disabling the usbhid driver will disable the USB keyboard and mouse connected to your Linux system. Therefore you must remote into the Linux system using SSH or something similar after disabling usbhid.
+
+### If using VMware 
+If using VMWare the HID devices are not available as individual devices and instead are wrapped in a virtual driver. To show the individual devices
+1. Shutdown the VM
+2. Go to VM->Settings->"USB Controller" and check "Show all USB input devices"
+3. Start VM and log in.
+You can now connect the individual keyboards and mice and they will show up when running `lsusb`
+
+### Disable the HID driver
+```
+# Add the line `blacklist usbhid` to `/etc/modprobe.d/usbhid.conf`
+sudo sh -c 'echo "blacklist usbhid" >> /etc/modprobe.d/usbhid.conf'
+
+cat /etc/modprobe.d/usbhid.conf
+blacklist usbhid
+
+sudo update-initramfs -u
 sudo reboot now
 
+sudo sh -c 'echo "# MosArt Semiconductor Corp. Wireless Mouse'
+sudo sh -c 'echo "SUBSYSTEMS==\"usb\", ATTRS{idVendor}==\"062a\", ATTRS{idProduct}==\"4102\", MODE:=\"0666\"" >> /etc/udev/rules.d/bluetooth-controller.rules'
 
-# check with
-lsmod | grep -i bluetooth
-export LIBUSB_DEBUG=4
-cd rust-usb-examples
-cargo build --bin bluetooth_le_controller
-cargo run  --bin bluetooth_le_controller -- -d abc
-
-
-# For the mouse
-# If using VMware 
-Shutdown the VM
-Go to VM->Settings->"USB Controller" and check "Show all USB input devices"
-Start VM and log in
-
-# disable hid
-sudo vi /etc/modprobe.d/usbhid.conf
-blacklist usbhid
-sudo update-initramfs -u
-# Update /etc/udev/rules.d/bluetooth-controller.rules
-
-sudo vi /etc/udev/rules.d/mouse-hid.rules
+cat /etc/udev/rules.d/mouse-hid.rules
 # MosArt Semiconductor Corp. Wireless Mouse
 SUBSYSTEMS=="usb", ATTRS{idVendor}=="062a", ATTRS{idProduct}=="4102", MODE:="0666"
+```
 
-sudo reboot now
+## Building and Running the Examples
+
+Clone and build the examples
+```
+git clone https://github.com/potto216/rust-usb-examples.git
+cd rust-usb-examples
+cargo build  --bin bluetooth_le_controller
+cargo build  --bin mouse_hid
+```
+Now find the USB devices and test them 
+
+```
+lsusb
+Bus 002 Device 006: ID 062a:4102 MosArt Semiconductor Corp. Wireless Mouse
+Bus 002 Device 005: ID 10d7:b012 Actions general adapter
+
+cargo run  --bin bluetooth_le_controller -- -d 062a:4102 -c hci_read_bd_addr -v
+cargo run  --bin mouse_hid -- -d 10d7:b012 -v
+```
+
+
+[rusb]: https://github.com/a1ien/rusb
+[bpaf]: https://github.com/pacak/bpaf

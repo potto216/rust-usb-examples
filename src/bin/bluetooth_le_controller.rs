@@ -1,11 +1,63 @@
-use bpaf::*;
 use std::time::Duration;
+use std::str::FromStr;
 use std::u16;
+
+use bpaf::{Parser, short, Bpaf};
 
 use rusb::{
     Context, Device, DeviceDescriptor, DeviceHandle, Direction, Recipient, RequestType, Result,
     UsbContext,
 };
+
+#[derive(Debug, Clone)]
+enum HciCommand {
+    HciReset,
+    HciReadBdAddr
+}
+    
+    // For the HCI Control and Baseband commands, the OGF is defined as 0x03.
+    // HCI_Reset OCF = 0x0003 Status pg 1972
+    // Opcode MSB LSB Param Length = 0
+    // OGF | OCF
+    // 0000 11 | 00 0000 0011 = 0x0C03
+    static  HCI_RESET_CMD_VALUES: [u8;3] = [0x03, 0x0C, 0x00];
+
+    // For Informational Parameters commands, the OGF is defined as 0x04.
+    // HCI_Read_BD_ADDR OCF = 0x0009 pg 2122
+    // Opcode MSB LSB Param Length = 0
+    // OGF | OCF
+    // 0001 00 | 00 0000 1001 = 0x1009
+    //[0x03, 0x10, 0x00];
+    static  HCI_READ_BD_ADDR_CMD_VALUES: [u8;3] = [0x09, 0x10, 0x00];
+
+impl HciCommand 
+{
+    fn value(&self) -> &'static [u8] {
+        match *self {
+            HciCommand::HciReset => &HCI_RESET_CMD_VALUES,
+            HciCommand::HciReadBdAddr => &HCI_READ_BD_ADDR_CMD_VALUES,
+        }                
+    } 
+
+
+}
+
+impl FromStr for HciCommand {
+    type Err = String;
+    fn from_str(s: &str) -> std::result::Result<Self, String>
+    where
+        Self: Sized,
+    {
+        match s {
+            "hci_reset" => Ok(HciCommand::HciReset),
+            "hci_read_bd_addr" => Ok(HciCommand::HciReadBdAddr),
+             _ => Err("Expected hci_reset|hci_read_bd_addr".to_string()),
+        }
+    }
+}
+
+
+
 
 fn verbose() -> impl Parser<usize> {
     short('v')
@@ -15,6 +67,24 @@ fn verbose() -> impl Parser<usize> {
         .many()
         .map(|v| v.len())
 }
+
+/*
+fn reset() -> impl Parser<bool> {
+short('r') 
+.long("reset") 
+.help("Reset the USB device") 
+.switch()
+}
+*/
+
+fn command() -> impl Parser<HciCommand> {    
+    short('c')
+    .long("command")
+    .help("choose between hci_reset or hci_read_bd_addr")
+    .argument::<HciCommand>("CMD")
+}
+
+
 
 #[allow(dead_code)]
 #[derive(Debug, Clone, Bpaf)]
@@ -29,6 +99,14 @@ struct Options {
     /// Increase verbosity
     #[bpaf(external)]
     verbose: usize,
+
+    #[bpaf(short, long)]
+    /// Reset the USB device
+    reset: bool,
+
+    #[bpaf(external)]
+    command:HciCommand, 
+
 }
 
 fn parse_device(input: String) -> std::result::Result<(u16, u16), &'static str> {
@@ -42,15 +120,22 @@ fn parse_device(input: String) -> std::result::Result<(u16, u16), &'static str> 
 
 fn main() {
     let opts = options().run();
-    println!("{:#?}", opts);
+    let verbose = opts.verbose;
+    if verbose > 0
+    {
+        println!("Command line options are: {:#?}", opts);
+    }
+    
     let (vid, pid) = opts.device;
+    let reset_device = opts.reset;
+    let command = opts.command;
 
-    println!("Hello, bluetooth_le_controller v0.0.1 {}:{}", vid, pid);
+    println!("bluetooth_le_controller v0.0.1 will open device {}:{}", vid, pid);
 
     match Context::new() {
         Ok(mut context) => match open_device(&mut context, vid, pid) {
             Some((mut device, device_desc, mut handle)) => {
-                read_device(&mut device, &device_desc, &mut handle).unwrap()
+                read_device(&mut device, &device_desc, &mut handle, command, reset_device).unwrap()
             }
             None => println!("could not find device {:04x}:{:04x}", vid, pid),
         },
@@ -85,8 +170,6 @@ fn open_device<T: UsbContext>(
         }
     }
 
-
-
     None
 }
 
@@ -94,8 +177,15 @@ fn read_device<T: UsbContext>(
     device: &mut Device<T>,
     device_desc: &DeviceDescriptor,
     handle: &mut DeviceHandle<T>,
+    command: HciCommand,
+    reset_device: bool,    
 ) -> Result<()> {
-    //handle.reset()?;
+    
+    if reset_device
+    {
+        handle.reset()?;
+    }
+
 
     let timeout = Duration::from_secs(1);
     let languages = handle.read_languages(timeout)?;
@@ -127,26 +217,7 @@ fn read_device<T: UsbContext>(
     }
 
     handle.set_active_configuration(1)?;
-    // OGF/OCF pg 1810
-    
-    // For the HCI Control and Baseband commands, the OGF is defined as 0x03.
-    // HCI_Reset OCF = 0x0003 Status pg 1972
-    // Opcode MSB LSB Param Length = 0
-    // OGF | OCF
-    // 0000 11 | 00 0000 0011 = 0x0C03
-    let mut hci_cmd_buf = [0x03, 0x0C, 0x00];
 
-    
-    let mut hci_cmd_buf_read = [0x00; 256];
-
-
-    // For Informational Parameters commands, the OGF is defined as 0x04.
-    // HCI_Read_BD_ADDR OCF = 0x0009 pg 2122
-    // Opcode MSB LSB Param Length = 0
-    // OGF | OCF
-    // 0001 00 | 00 0000 1001 = 0x1009
-    //[0x03, 0x10, 0x00];
-    let mut hci_cmd_buf = [0x09, 0x10, 0x00];
     let timeout_cmd = Duration::from_secs(1);
     let req_t = rusb::request_type(Direction::Out, RequestType::Class, Recipient::Device);  //Should be 0x20
     println!("Writing to control req_t = {}",req_t);
@@ -156,7 +227,7 @@ fn read_device<T: UsbContext>(
          0,        
          0x00,
          0x00,
-         &mut hci_cmd_buf,
+         &command.value(),
          timeout_cmd) {
         Ok(len) => {
             println!(" - sent: {:?} bytes", len);
