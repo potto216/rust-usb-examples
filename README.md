@@ -86,12 +86,14 @@ Now find the USB devices and test them
 
 ```
 lsusb
+Bus 002 Device 004: ID 0a5c:21e8 Broadcom Corp. BCM20702A0 Bluetooth 4.0
 Bus 002 Device 006: ID 062a:4102 MosArt Semiconductor Corp. Wireless Mouse
-Bus 002 Device 005: ID 10d7:b012 Actions general adapter
 
-cargo run  --bin bluetooth_le_controller -- -d 062a:4102 -c hci_read_bd_addr -v
-cargo run  --bin mouse_hid -- -d 10d7:b012 -v
+cargo run  --bin bluetooth_le_controller -- -d 0a5c:21e8 -c hci_read_bd_addr -v
+cargo run  --bin mouse_hid -- -d 062a:4102 -v
 ```
+
+To debug by seeing libusb information set `export LIBUSB_DEBUG=4`
 
 
 [rusb]: https://github.com/a1ien/rusb
