@@ -92,9 +92,30 @@ Bus 002 Device 006: ID 062a:4102 MosArt Semiconductor Corp. Wireless Mouse
 cargo run  --bin bluetooth_le_controller -- -d 0a5c:21e8 -c hci_read_bd_addr -v
 cargo run  --bin mouse_hid -- -d 062a:4102 -v
 ```
+## Debugging  Tips
+To see the maximum amount of libusb information set `export LIBUSB_DEBUG=4`. This information is printed over standard error (stderr).
+To remove libusb debug information remove the environment variable with `unset LIBUSB_DEBUG`
 
-To debug by seeing libusb information set `export LIBUSB_DEBUG=4`
+To dump USB traffic on Linux you first need the usbmon kernel module. 
+```
+# Check if it is running
+lsmod | grep usb
 
+#if not running, check if you have it in the kernel
+modinfo usbmon
+
+# If you have it and not loaded, then load it`
+sudo modprobe usbmon
+```
+
+Either install Wireshark, tshark (command line Wireshark) or use tcpdump. if using tcpdump to capture USB in PCAP format you may need to run `sudo apt install libdbus-1-dev libpcap-dev libpcap0.8-dev`
+
+```
+# list the USB bus capture options
+tcpdump -D
+# Then choose the USB bus that your devices is on which you can find out from lsusb and capture
+tcpdump -i usbmon2 -w usbmouse.pcap 
+```
 
 [rusb]: https://github.com/a1ien/rusb
 [bpaf]: https://github.com/pacak/bpaf

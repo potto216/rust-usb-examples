@@ -218,7 +218,7 @@ fn read_device<T: UsbContext>(
     let timeout_cmd = Duration::from_secs(1);
     println!("Writing to control endpoint.");
 
-
+    // values from pg 1672 BLUETOOTH CORE SPECIFICATION Version 5.3 | Vol 4, Part B
     match handle.write_control( rusb::request_type(Direction::Out, RequestType::Class, Recipient::Device),
          0,        
          0x00,
