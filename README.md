@@ -40,7 +40,6 @@ cat /etc/udev/rules.d/bluetooth-controller.rules
 # Broadcom Corp. BCM20702A0 Bluetooth 4.0
 SUBSYSTEMS=="usb", ATTRS{idVendor}=="0a5c", ATTRS{idProduct}=="21e8", MODE:="0666"
 
-
 sudo udevadm control --reload-rules && sudo udevadm trigger
 ```
 
@@ -71,6 +70,8 @@ sudo sh -c 'echo "SUBSYSTEMS==\"usb\", ATTRS{idVendor}==\"062a\", ATTRS{idProduc
 cat /etc/udev/rules.d/mouse-hid.rules
 # MosArt Semiconductor Corp. Wireless Mouse
 SUBSYSTEMS=="usb", ATTRS{idVendor}=="062a", ATTRS{idProduct}=="4102", MODE:="0666"
+
+sudo udevadm control --reload-rules && sudo udevadm trigger
 ```
 
 ## Building and Running the Examples

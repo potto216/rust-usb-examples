@@ -57,8 +57,6 @@ impl FromStr for HciCommand {
 }
 
 
-
-
 fn verbose() -> impl Parser<usize> {
     short('v')
         .long("verbose")
@@ -130,7 +128,7 @@ fn main() {
     let reset_device = opts.reset;
     let command = opts.command;
 
-    println!("bluetooth_le_controller v0.0.1 will open device {}:{}", vid, pid);
+    println!("bluetooth_le_controller v0.0.1 will open device {:04x}:{:04x}", vid, pid);
 
     match Context::new() {
         Ok(mut context) => match open_device(&mut context, vid, pid) {
@@ -182,7 +180,6 @@ fn read_device<T: UsbContext>(
     {
         handle.reset()?;
     }
-
 
     let timeout = Duration::from_secs(1);
     let languages = handle.read_languages(timeout)?;
