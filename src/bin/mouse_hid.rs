@@ -1,10 +1,41 @@
 use bpaf::*;
-use std::path::PathBuf;
 use std::time::Duration;
 
 use rusb::{
     Context, Device, DeviceDescriptor, DeviceHandle, Direction, Result, RequestType, UsbContext, Recipient
 };
+
+
+#[derive(Debug)]
+#[repr(C)]
+struct WaveFile {
+    /// Marks the file as riff file, value should be: "RIFF"
+    buttons: [u8; 4],
+    /// Size of the overall file
+    file_size: u32,
+    /// File Type Header. Always should equal "WAVE"
+    wave: [u8; 4],
+    /// Format chunk marker, sample value: "fmt" with null termination character
+    format: [u8; 4],
+    /// Length of format data (should be 16 bytes as above)
+    format_len: u32,
+    /// 1 - PCM, 3 - IEEE float, 6 - 8bit A law, 7 - 8bit mu law
+    format_type: [u8; 2],
+    /// Number of Channels
+    num_of_channels: [u8; 2],
+    /// Sample Rate in Hz
+    sample_rate: [u8; 4],
+    /// bytes per second of recording (Sample Rate * BitsPerSample * Channels) / 8
+    byte_rate: [u8; 4],
+    /// 1 - 8bit mono, 2 - 8bit stereo / 16bit mono, 4 - 16bit stereo
+    audio_type: [u8; 2],
+    /// Bits per sample
+    bits_per_sample: [u8; 2],
+    /// Sample value: “data” - data chunk header. Marks the beginning of the data section.
+    data: [u8; 4],
+    /// Size of data section
+    size_of_data: [u8; 4],
+}
 
 
 fn verbose() -> impl Parser<usize> {
@@ -147,14 +178,14 @@ fn read_device<T: UsbContext>(
     let timeout_cmd = Duration::from_secs(1);
     println!("Writing to control");
 
-    match handle.write_control( rusb::request_type(Direction::In, RequestType::Standard, Recipient::Interface),
+    match handle.read_control( rusb::request_type(Direction::In, RequestType::Standard, Recipient::Interface),
          0x06,
          0x2200,
          0x00,
          &mut cmd_buf,
          timeout_cmd) {
         Ok(len) => {
-            println!(" - received: {:?} bytes which equal {:?}", len, &cmd_buf[..len]);
+            println!(" - received a report descriptor of length: {:?} bytes which equal {:?}", len, &cmd_buf[..len]);
         }
         Err(err) => println!("could not read from endpoint: {}", err),
     }
@@ -162,18 +193,55 @@ fn read_device<T: UsbContext>(
     handle.claim_interface(0)?;
 
     // bEndpointAddress     0x81  EP 1 IN ; Transfer Type            Interrupt
-    let mut buf = [0; 64];
+    let mut buf = [0; 256];
     let timeout = Duration::from_secs(1);
     let endpoint_address = 0x81;
 
-    println!("Reading event from interrupt");
-    match handle.read_interrupt(endpoint_address, &mut buf, timeout) {
-        Ok(len) => {
-            println!(" - read: {:?}", &buf[..len]);
+    let mut runs=0;
+    while runs < 40
+    {
+        println!("Reading event from interrupt");
+        match handle.read_interrupt(endpoint_address, &mut buf, timeout) {
+            Ok(len) => {
+                println!(" - read: {:?}", &buf[..len]);
+            }
+            Err(err) => println!("Endpoint message: {}", err),        
         }
-        Err(err) => println!("could not read from endpoint: {}", err),        
+        println!(" - read bytes: {:?}", &buf[..5]);
+        let buttons:u8 = buf[0];
+        if (buttons & 0x01) != 0
+        {
+            println!("button 1 pressed");     
+        }
+        if (buttons & 0x02) != 0
+        {
+            println!("button 2 pressed");     
+        }    
+        
+        if (buttons & 0x04) != 0
+        {
+            println!("button 3 pressed");     
+        }     
+        // the bottom half
+        // 00000000 0012
+        // 01234567 8901 MSB
+
+        let xpos_unsigned:u16= (((buf[2] & 0x0F) as u16) << 12) | (buf[1] as u16) << 4;
+        //let xpos_unsigned:u16= ((buf[1] as u16) << 8) | ((buf[2] & 0xF0) as u16) << 4;
+        let xpos:i16 = xpos_unsigned as i16; 
+
+        let ypos_unsigned:u16= ((buf[3] as u16) << 8) | ((buf[2] & 0xF0) as u16);
+        let ypos:i16 = ypos_unsigned as i16; 
+        println!("x,y = ({},{})", (xpos >> 4), (ypos >> 4)); 
+        println!("wheel = {}", buf[4]);
+
+
+
+        runs = runs + 1;
+
+    
     }
-    println!(" - read: {:?}", &buf);
+
         
 
     handle.release_interface(0)?;
