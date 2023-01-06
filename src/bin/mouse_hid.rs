@@ -6,38 +6,6 @@ use rusb::{
 };
 
 
-#[derive(Debug)]
-#[repr(C)]
-struct WaveFile {
-    /// Marks the file as riff file, value should be: "RIFF"
-    buttons: [u8; 4],
-    /// Size of the overall file
-    file_size: u32,
-    /// File Type Header. Always should equal "WAVE"
-    wave: [u8; 4],
-    /// Format chunk marker, sample value: "fmt" with null termination character
-    format: [u8; 4],
-    /// Length of format data (should be 16 bytes as above)
-    format_len: u32,
-    /// 1 - PCM, 3 - IEEE float, 6 - 8bit A law, 7 - 8bit mu law
-    format_type: [u8; 2],
-    /// Number of Channels
-    num_of_channels: [u8; 2],
-    /// Sample Rate in Hz
-    sample_rate: [u8; 4],
-    /// bytes per second of recording (Sample Rate * BitsPerSample * Channels) / 8
-    byte_rate: [u8; 4],
-    /// 1 - 8bit mono, 2 - 8bit stereo / 16bit mono, 4 - 16bit stereo
-    audio_type: [u8; 2],
-    /// Bits per sample
-    bits_per_sample: [u8; 2],
-    /// Sample value: “data” - data chunk header. Marks the beginning of the data section.
-    data: [u8; 4],
-    /// Size of data section
-    size_of_data: [u8; 4],
-}
-
-
 fn verbose() -> impl Parser<usize> {
     short('v')
         .long("verbose")
@@ -132,7 +100,7 @@ fn open_device<T: UsbContext>(
 }
 
 fn read_device<T: UsbContext>(
-    device: &mut Device<T>,
+    _device: &mut Device<T>,
     device_desc: &DeviceDescriptor,
     handle: &mut DeviceHandle<T>,
     reset_device: bool, 
@@ -185,6 +153,7 @@ fn read_device<T: UsbContext>(
          &mut cmd_buf,
          timeout_cmd) {
         Ok(len) => {
+            // see the comments at the end of the code for decoding a similar report description 
             println!(" - received a report descriptor of length: {:?} bytes which equal {:?}", len, &cmd_buf[..len]);
         }
         Err(err) => println!("could not read from endpoint: {}", err),
@@ -194,20 +163,31 @@ fn read_device<T: UsbContext>(
 
     // bEndpointAddress     0x81  EP 1 IN ; Transfer Type            Interrupt
     let mut buf = [0; 256];
-    let timeout = Duration::from_secs(1);
+    let timeout = Duration::from_millis(10);    // This needs to be fast enough to keep up with how often the device is generating reports
     let endpoint_address = 0x81;
 
     let mut runs=0;
-    while runs < 40
+    
+    // A value of 3000 ran for about 20 seconds on my VM
+    while runs < 3000 
     {
-        println!("Reading event from interrupt");
         match handle.read_interrupt(endpoint_address, &mut buf, timeout) {
             Ok(len) => {
                 println!(" - read: {:?}", &buf[..len]);
             }
-            Err(err) => println!("Endpoint message: {}", err),        
+            Err(err) => {println!("Endpoint message: {}", err)}, 
         }
-        println!(" - read bytes: {:?}", &buf[..5]);
+
+        //  Report Structure
+        //        00000000 00111111 11112222 22222233 33333333
+        //        01234567 89012345 67890123 45678901 23456789 LSB
+        // Button 012XXXXX 
+        //                 00000000 0011
+        // X dir moved LSB 01234567 8901 MSB
+        //                              0000 00000011  
+        // Y dir moved LSB              0123 45678901 MSB
+        // Wheel                                      01234567
+
         let buttons:u8 = buf[0];
         if (buttons & 0x01) != 0
         {
@@ -222,30 +202,75 @@ fn read_device<T: UsbContext>(
         {
             println!("button 3 pressed");     
         }     
-        // the bottom half
-        // 00000000 0012
-        // 01234567 8901 MSB
 
-        let xpos_unsigned:u16= (((buf[2] & 0x0F) as u16) << 12) | (buf[1] as u16) << 4;
-        //let xpos_unsigned:u16= ((buf[1] as u16) << 8) | ((buf[2] & 0xF0) as u16) << 4;
-        let xpos:i16 = xpos_unsigned as i16; 
-
-        let ypos_unsigned:u16= ((buf[3] as u16) << 8) | ((buf[2] & 0xF0) as u16);
-        let ypos:i16 = ypos_unsigned as i16; 
-        println!("x,y = ({},{})", (xpos >> 4), (ypos >> 4)); 
-        println!("wheel = {}", buf[4]);
-
-
-
-        runs = runs + 1;
-
-    
-    }
-
+        println!("wheel value is {}", (buf[4] as i8));
         
+        // This value represents the relative position of how much the mouse has moved
+        // Need to assemble this 12 bit value which is split between 1 full byte and a nibble of the next byte into a 16 bit unsigned value
+        // so that it can be cast to a 2s complement signed value.        
+        let x_moved_unsigned:u16= (((buf[2] & 0x0F) as u16) << 12) | (buf[1] as u16) << 4;        
+
+        // now that it is a signed value can convert it back to 12 bits and if it is negative the sign will be dragged along
+        // also turn it back to a 12 bit number
+        let x_moved:i16 = (x_moved_unsigned as i16) >> 4; 
+        
+        // see above comments
+        let y_moved_unsigned:u16= ((buf[3] as u16) << 8) | ((buf[2] & 0xF0) as u16);
+        let y_moved:i16 = (y_moved_unsigned as i16) >> 4; 
+
+        println!("mouse moved (x,y) = ({},{})", x_moved, y_moved); 
+        
+        runs = runs + 1;    
+    }     
 
     handle.release_interface(0)?;
 
-
     Ok(())
 }
+
+/******************
+ * Decoding of the report description 
+ * Can compare to lsusb -d XXXX:XXXX -v values
+Item                  			Value (Hex)
+Usage Page (Generic Desktop),   05 01
+Usage (Mouse),                  09 02
+Collection (Application),       A1 01
+  Usage (Pointer),              09 01
+  Collection (Physical),        A1 00
+    Usage Page (Buttons),       05 09
+    Usage Minimum (01),         19 01	
+    Usage Maximum (03),         29 03
+    Logical Minimum (0),        15 00	
+    Logical Maximum (1),        25 01
+	Report Size (1 bit),        75 01
+    Report Count (3),           95 03    
+    Input 
+	--(Data, Var, Absolute),	81 02 ;3 button bits
+	Report Size (5),			75 05
+    Report Count (1),           95 01  
+	Input (Constant), 			81 01 ;5 bit padding
+	Usage Page 
+	--(Generic Desktop),		05 01
+	Usage (X),					09 30
+	Usage (Y),					09 31
+	
+	Logical Minimum (2B),		16 [01 F8 ] = -2047
+	Logical Maximum (2B),		26 [FF 07 ] =  2047
+	
+	Report Size (12 bits),		75 0C
+	Report Count (2),			95 02
+	Input
+	--(Data, Var, Relative), 	81 06 ;2 position bytes (X & Y)
+	
+	Usage (Wheel) 				09 38
+
+	Logical Minimum (1B),		15 [81] = -127
+	Logical Maximum (1B),		25 [7F] =  127
+
+	Report Size  (8 bits)		75 08
+    Report Count (1)			95 01
+    Input
+	--(Data, Var, Relative),	81 06
+  End Collection,				C0
+End Collection					C0
+*******************/
